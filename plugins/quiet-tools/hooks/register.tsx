@@ -69,6 +69,46 @@ function deniedLine(tool: string, detail: string, reason: string, s: Strings): s
   return `✗ ${tool}${detail === '' ? '' : ` · ${detail}`} — ${s.blocked}${reason}`
 }
 
+type GitOperation = {
+  commit?: { sha: string; kind: string; branch?: string }
+  push?: { branch: string }
+  branch?: { ref: string; action: string }
+  pr?: { number: number; action: string }
+}
+
+/**
+ * What a Bash call's hidden result would have told: the git operation it made (never
+ * shown to the model either), a move to the background, the exit code's meaning.
+ * Empty when there is nothing; an errored call's output is plain text, so it has none.
+ * Other tools' results are not read: the same field names there mean something else.
+ */
+export function metaOf(tool: string, output: unknown, s: Strings): string {
+  if (tool !== 'Bash' || typeof output !== 'object' || output === null || Array.isArray(output)) return ''
+  const result = output as Record<string, unknown>
+  const notes: string[] = []
+  const git = (result.gitOperation ?? {}) as GitOperation
+  if (git.commit) notes.push(`${git.commit.kind} ${git.commit.sha.slice(0, 7)}${git.commit.branch ? ` → ${git.commit.branch}` : ''}`)
+  if (git.push) notes.push(`pushed → ${git.push.branch}`)
+  if (git.branch) notes.push(`${git.branch.action} ${git.branch.ref}`)
+  if (git.pr) notes.push(`PR #${git.pr.number} ${git.pr.action}`)
+  if (typeof result.timedOutAfterMs === 'number') notes.push(s.timedOut(Math.round(result.timedOutAfterMs / 1000)))
+  else if (typeof result.backgroundTaskId === 'string') notes.push(s.background)
+  if (typeof result.returnCodeInterpretation === 'string' && result.returnCodeInterpretation !== '') notes.push(result.returnCodeInterpretation)
+  return notes.join(', ')
+}
+
+// Cells the engine indents a transcript row by, with a little slack.
+const ROW_INDENT = 4
+
+// Tool rows don't say whether the ctrl+o transcript (or --verbose) is open, but the
+// person's own prompt rows do; the last one drawn is mirrored here, and while it says
+// expanded every tool row is the engine's, history included.
+let isExpandedView = false
+
+// A peer's or teammate's row can report expanded in the normal view (under a speaker
+// label, when its body fits), so only the person's own prompts are read.
+const OWN_PROMPT = new Set(['composer', 'bridge'])
+
 export const register: Register = (on, options) => {
   const s = stringsFor(options?.language)
 
@@ -87,10 +127,19 @@ export const register: Register = (on, options) => {
     return { text: now ? s.on : s.off }
   })
 
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    if (e.surface === 'terminal' && OWN_PROMPT.has(e.props.origin.kind) && e.props.isExpanded !== isExpandedView) {
+      isExpandedView = e.props.isExpanded
+      // Tool rows keep their last drawing until asked again, so the switch redraws them.
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
+  })
+
   // Failed and interrupted calls keep the engine's full row, so failures stay visible;
   // a call a hook refused is one red line naming the reason.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.isInterrupted || ALWAYS_FULL.has(e.props.tool)) return next(e)
+    if (e.surface !== 'terminal' || isExpandedView || e.props.isInterrupted || ALWAYS_FULL.has(e.props.tool)) return next(e)
     const denial = e.props.isErrored ? hookDenial(e.props.output, e.props.tool) : null
     if (e.props.isErrored && denial === null) return next(e)
     if (!(await read($, isOn))) return next(e)
@@ -108,6 +157,13 @@ export const register: Register = (on, options) => {
       )
     }
 
+    // The meta sits in its own box that does not shrink, so a long command is cut before
+    // it is; past the room the tool name and the engine's indent leave, the meta is cut too.
+    // ponytail: counts characters, not cells; a meta full of CJK can still run past the row, count cells if one does
+    const room = Math.max(12, (e.viewport?.columns ?? 80) - `✓ ${e.props.tool} — `.length - ROW_INDENT)
+    const full = metaOf(e.props.tool, e.props.output, s)
+    const meta = full.length > room ? `${full.slice(0, room - 1)}…` : full
+
     return (
       <Box key="quiet-row">
         <Text dimColor wrap="truncate-end">
@@ -115,6 +171,11 @@ export const register: Register = (on, options) => {
           {e.props.tool}
           {detail === '' ? '' : ` · ${detail}`}
         </Text>
+        {meta !== '' && (
+          <Box key="quiet-meta" flexShrink={0}>
+            <Text dimColor>{` — ${meta}`}</Text>
+          </Box>
+        )}
       </Box>
     )
   })
@@ -130,6 +191,7 @@ export const register: Register = (on, options) => {
     const { Box, Text } = $.ui.resolve(e)
     const ran = calls.filter(({ denial }) => denial === null).map(({ call }) => call)
     const isRunning = ran.some(call => call.isRunning)
+    const meta = ran.map(call => metaOf(call.tool, call.output, s)).filter(Boolean).join(', ')
 
     return (
       <Box key="quiet-group" flexDirection="column">
@@ -138,6 +200,7 @@ export const register: Register = (on, options) => {
             <Text dimColor wrap="truncate-end">
               {isRunning ? '… ' : '✓ '}
               {summarizeGroup(ran.map(call => call.tool))}
+              {meta === '' ? '' : ` — ${meta}`}
             </Text>
           </Box>
         )}
@@ -154,7 +217,7 @@ export const register: Register = (on, options) => {
 
   // The refused call's row already carries the reason; its error block would repeat it.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || ALWAYS_FULL.has(e.props.tool)) return next(e)
+    if (e.surface !== 'terminal' || isExpandedView || ALWAYS_FULL.has(e.props.tool)) return next(e)
     if (e.props.isErrored && hookDenial(e.props.output, e.props.tool) === null) return next(e)
     if (!(await read($, isOn))) return next(e)
 
