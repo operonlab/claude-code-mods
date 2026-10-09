@@ -1,0 +1,11 @@
+{
+  "name": "hook-notices",
+  "version": "0.1.0",
+  "description": "Fold this session's hook messages into one line above the prompt; open them in a scrollable pane.",
+  "author": {
+    "name": "Jones Hong"
+  },
+  "license": "MIT",
+  "userConfig": { "language": { "title": "Language", "description": "Labels in English or Traditional Chinese", "type": "string", "options": ["en", "zh-TW"], "default": "en" } },
+  "types": "./types/index.d.ts"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "prompt-band",
+  "version": "0.1.0",
+  "description": "Draw hook-notices' and turn-nav's lines above the prompt as one row.",
+  "author": { "name": "Jones Hong" },
+  "license": "MIT",
+  "dependencies": ["hook-notices", "turn-nav"]
+}

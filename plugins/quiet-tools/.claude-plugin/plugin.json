@@ -1,0 +1,19 @@
+{
+  "name": "quiet-tools",
+  "version": "0.1.0",
+  "description": "Draws successful tool calls as one dim line in the terminal and hides their output; a call a hook refused is one red line; failed calls stay in full; /quiet-tools toggles it.",
+  "author": {
+    "name": "Jones Hong"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "title": "Language",
+      "description": "Labels in English or Traditional Chinese",
+      "type": "string",
+      "options": ["en", "zh-TW"],
+      "default": "en"
+    }
+  }
+}
