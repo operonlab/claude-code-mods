@@ -13,7 +13,7 @@ noise down to one line each and keep failures in plain sight.
 
 | Mod | What it does |
 |---|---|
-| [quiet-tools](plugins/quiet-tools) | A successful tool call becomes one dim line, its output hidden. A call a hook refused becomes one red line with the reason. Calls that ran and failed stay in full. |
+| [quiet-tools](plugins/quiet-tools) | A successful tool call becomes one dim line, its output hidden but its key facts kept (`committed 5f78e2b → main`, `in background`, `No matches found`). A call a hook refused becomes one red line with the reason. Calls that ran and failed stay in full, and `ctrl+o` shows every call in full. |
 | [hook-notices](plugins/hook-notices) | Hook messages fold into one line above the prompt — count, unread alerts, newest headline — and open in a scrollable pane. |
 | [turn-nav](plugins/turn-nav) | A pane listing the prompts you sent; press one and the transcript jumps there. |
 | [prompt-band](plugins/prompt-band) | Puts hook-notices' and turn-nav's lines on one row. |

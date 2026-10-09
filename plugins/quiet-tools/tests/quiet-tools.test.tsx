@@ -253,6 +253,96 @@ test('with quiet-tools off, a refused call keeps the engine row', async ($, on) 
   expect(await use.find({ key: 'engine-row' })).toBeDefined()
 })
 
+const prompt = (isExpanded: boolean, kind: 'composer' | 'unclassified' = 'composer') => ({
+  text: 'run the tests',
+  origin: { kind },
+  isExpanded,
+})
+
+test('ctrl+o draws every tool row in full, rows drawn before it included; closing it folds them again', async ($, on) => {
+  engineDraws(on)
+  const use = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props: bash() })
+  const refused = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props: bash({ isErrored: true, output: GATE }) })
+  const res = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolResult', props: result(false) })
+  expect(await use.find({ key: 'quiet-row' })).toBeDefined()
+  expect(await refused.find({ key: 'quiet-denied' })).toBeDefined()
+  expect(await res.find({ key: 'quiet-result' })).toBeDefined()
+
+  await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'UserMessage', props: prompt(true) })
+  expect(await use.find({ key: 'quiet-row' })).toBeUndefined()
+  expect(await use.find({ key: 'engine-row' })).toBeDefined()
+  expect(await refused.find({ key: 'quiet-denied' })).toBeUndefined()
+  expect(await refused.find({ key: 'engine-row' })).toBeDefined()
+  expect(await res.find({ key: 'quiet-result' })).toBeUndefined()
+  expect(await res.find({ key: 'engine-row' })).toBeDefined()
+
+  await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'UserMessage', props: prompt(false) })
+  expect(await use.find({ key: 'quiet-row' })).toBeDefined()
+  expect(await res.find({ key: 'quiet-result' })).toBeDefined()
+})
+
+test('a row that is not the person’s own prompt does not open the full view', async ($, on) => {
+  engineDraws(on)
+  const use = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props: bash() })
+  await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'UserMessage', props: prompt(true, 'unclassified') })
+  expect(await use.find({ key: 'quiet-row' })).toBeDefined()
+  expect(await use.find({ key: 'engine-row' })).toBeUndefined()
+})
+
+const ran = (fields: Record<string, unknown>) => ({ stdout: '', stderr: '', interrupted: false, ...fields })
+
+test('the one line keeps what the hidden result would have told', async ($, on) => {
+  engineDraws(on)
+  const cases: [Record<string, unknown>, string][] = [
+    [
+      { gitOperation: { commit: { sha: '5756c6df1abc', kind: 'committed', branch: 'local-main' }, push: { branch: 'main' } } },
+      'committed 5756c6d → local-main, pushed → main',
+    ],
+    [{ gitOperation: { branch: { ref: 'feature/x', action: 'merged' }, pr: { number: 15, action: 'created' } } }, 'merged feature/x, PR #15 created'],
+    [{ backgroundTaskId: 'b1', timedOutAfterMs: 120000 }, 'timed out after 120s, in background'],
+    [{ backgroundTaskId: 'b1' }, 'in background'],
+    [{ returnCodeInterpretation: 'No matches found' }, 'No matches found'],
+  ]
+  for (const [fields, meta] of cases) {
+    const use = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props: bash({ output: ran(fields) }) })
+    expect((await use.find({ key: 'quiet-row' }))?.text).toBe(`✓ Bash · List temp files — ${meta}`)
+  }
+
+  const plain = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props: bash() })
+  expect(await plain.find({ key: 'quiet-meta' })).toBeUndefined()
+
+  const grouped = { ...call('Bash'), output: ran({ gitOperation: { commit: { sha: 'abcdef0123', kind: 'amended' } } }) }
+  const folded = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolGroup', props: group([call('Read'), grouped]) })
+  expect((await folded.find({ key: 'quiet-group-ran' }))?.text).toBe('✓ Read 1 file, ran 1 command — amended abcdef0')
+})
+
+test('another tool’s result is not read for meta, even with the same field names', async ($, on) => {
+  engineDraws(on)
+  const props = { ...bash({ output: ran({ backgroundTaskId: 'b1', returnCodeInterpretation: 'No matches found' }) }), tool: 'mcp__ci__run' }
+  const use = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props })
+  expect(await use.find({ key: 'quiet-row' })).toBeDefined()
+  expect(await use.find({ key: 'quiet-meta' })).toBeUndefined()
+})
+
+test('a meta longer than the row is cut, so it never runs past it', async ($, on) => {
+  engineDraws(on)
+  const branch = 'feature/a-branch-name-long-enough-to-overflow-a-narrow-terminal'
+  const props = bash({ output: ran({ gitOperation: { push: { branch } } }) })
+  const narrow = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props, viewport: { columns: 60, rows: 20 } })
+  const cut = (await narrow.find({ key: 'quiet-meta' }))?.text ?? ''
+  expect(cut.endsWith('…')).toBe(true)
+  expect(`✓ Bash${cut}`.length).toBeLessThanOrEqual(60)
+
+  const wide = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props, viewport: { columns: 300, rows: 20 } })
+  expect((await wide.find({ key: 'quiet-meta' }))?.text).toBe(` — pushed → ${branch}`)
+})
+
+test('the meta labels follow the language option', { options: { language: 'zh-TW' } }, async ($, on) => {
+  engineDraws(on)
+  const use = await $.ui.mount({ plugin: 'quiet-tools', surface: 'terminal', component: 'ToolUse', props: bash({ output: ran({ backgroundTaskId: 'b1', timedOutAfterMs: 90000 }) }) })
+  expect((await use.find({ key: 'quiet-meta' }))?.text).toBe(' — 90 秒逾時，轉到背景')
+})
+
 test('summarizeGroup names unknown tools by count', () => {
   expect(summarizeGroup(['Bash', 'Bash'])).toBe('Ran 2 commands')
   expect(summarizeGroup(['mcp__x__y'])).toBe('Mcp__x__y ×1')

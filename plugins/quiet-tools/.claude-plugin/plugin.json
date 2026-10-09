@@ -1,7 +1,7 @@
 {
   "name": "quiet-tools",
-  "version": "0.1.0",
-  "description": "Draws successful tool calls as one dim line in the terminal and hides their output; a call a hook refused is one red line; failed calls stay in full; /quiet-tools toggles it.",
+  "version": "0.2.0",
+  "description": "Draws successful tool calls as one dim line in the terminal and hides their output, keeping its key facts (git commit, background, exit code meaning); a call a hook refused is one red line; failed calls stay in full; ctrl+o shows everything; /quiet-tools toggles it.",
   "author": {
     "name": "Jones Hong"
   },
