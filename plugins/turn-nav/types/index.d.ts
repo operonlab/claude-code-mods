@@ -1,4 +1,5 @@
-export type Turn = { id: string; text: string }
+/** A prompt: its row id, its text, and when it was sent (ms since the epoch; absent where nothing said). */
+export type Turn = { id: string; text: string; at?: number }
 /** One line above the prompt: its text as one tap target. */
 export type TurnNavChip = { label: string }
 /**

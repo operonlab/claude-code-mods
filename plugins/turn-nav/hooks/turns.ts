@@ -19,8 +19,8 @@ const PERSON = new Set(['human', 'composer', 'bridge'])
  * the main conversation (no subagent's, no meta row) whose origin is the person. A line that does not
  * parse (the last one when the read was cut) is counted in `unreadable`.
  */
-export function historyTurns(lines: string, max = 200): { turns: { id: string; text: string }[]; unreadable: number } {
-  const turns: { id: string; text: string }[] = []
+export function historyTurns(lines: string, max = 200): { turns: { id: string; text: string; at?: number }[]; unreadable: number } {
+  const turns: { id: string; text: string; at?: number }[] = []
   let unreadable = 0
   for (const line of lines.split('\n')) {
     if (!line.trim()) continue
@@ -34,7 +34,8 @@ export function historyTurns(lines: string, max = 200): { turns: { id: string; t
     if (row?.type !== 'user' || row.isSidechain || row.isMeta || typeof row.uuid !== 'string') continue
     if (!PERSON.has(row.origin?.kind)) continue
     const text = promptText(row.message?.content)
-    if (text) turns.push({ id: row.uuid, text })
+    const at = typeof row.timestamp === 'string' ? Date.parse(row.timestamp) : NaN
+    if (text) turns.push({ id: row.uuid, text, ...(Number.isFinite(at) ? { at } : {}) })
   }
   return { turns: turns.slice(-max), unreadable }
 }
@@ -49,10 +50,22 @@ export function cellWidth(text: string): number {
   return width
 }
 
-/** `n first-line`, cut to `width` terminal cells (at least 8) with an ellipsis. */
-export function label(n: number, text: string, width: number): string {
+const pad = (v: number) => String(v).padStart(2, '0')
+
+/** `HH:MM` in local time; `MM-DD HH:MM` when `at` is not on the same day as `now`. Twin of link-nav's stamp. */
+export function stamp(at: number, now: number): string {
+  const d = new Date(at)
+  const n = new Date(now)
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const sameDay = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
+  return sameDay ? time : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`
+}
+
+/** `n [time] first-line`, cut to `width` terminal cells (at least 8) with an ellipsis. */
+export function label(n: number, text: string, width: number, at?: number, now?: number): string {
   const first = text.split(/\r?\n/).map(line => line.replace(/\s+/g, ' ').trim()).find(Boolean) ?? ''
-  const full = `${n} ${first}`
+  const when = at === undefined ? '' : `${stamp(at, now ?? at)} `
+  const full = `${n} ${when}${first}`
   const limit = Math.max(8, width)
   if (cellWidth(full) <= limit) return full
   let out = ''
@@ -88,8 +101,8 @@ export function fitLine(text: string, width: number): string {
   return body + ' '.repeat(Math.max(0, width - cellWidth(body)))
 }
 
-export function rowLabel(n: number, text: string, width: number): string {
-  const base = label(n, text, width - 2)
+export function rowLabel(n: number, text: string, width: number, at?: number, now?: number): string {
+  const base = label(n, text, width - 2, at, now)
   return base + ' '.repeat(Math.max(1, width - 1 - cellWidth(base))) + '›'
 }
 

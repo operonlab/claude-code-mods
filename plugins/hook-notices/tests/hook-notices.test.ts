@@ -113,7 +113,7 @@ test('the line opens a scrollable pane, steps aside while it is drawn, and comes
 
   await ui.press({ key: 'open' })
   expect(pane.placed).toBe(true)
-  expect(pane.args).toMatchObject({ id: 'hook-notices', rows: 12, columns: 48 })
+  expect(pane.args).toMatchObject({ id: 'hook-notices', rows: 12, columns: 48, focus: true, closeOnEscape: true })
   expect(await ui.find({ key: 'open' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'engine band' })).toBeDefined()
   await $.ui.mount(PANE)

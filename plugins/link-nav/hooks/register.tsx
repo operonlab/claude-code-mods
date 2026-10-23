@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import type { NavItem } from '../types'
-import { denyMessage, fileItems, filterItems, fitLine, linkItems, mergeItems, openArgs, rowText } from './links'
+import { arrivalNumbers, denyMessage, fileItems, filterItems, fitLine, linkItems, mergeItems, openArgs, rowText } from './links'
 import type { Found } from './links'
 import { stringsFor } from './strings'
 import type { Strings } from './strings'
@@ -25,8 +25,14 @@ async function home($: EngineInterface): Promise<string | undefined> {
   return (await $.env.get('HOME')) || undefined
 }
 
-async function add($: EngineInterface, found: Found[]): Promise<void> {
-  if (found.length) await update($, items, list => mergeItems(list, found))
+async function add($: EngineInterface, found: Found[], at?: number): Promise<void> {
+  if (!found.length) return
+  const stamped = at === undefined ? found : found.map(item => ({ ...item, at }))
+  await update($, items, list => mergeItems(list, stamped))
+}
+
+async function now($: EngineInterface): Promise<number | undefined> {
+  return $.clock.now().catch(() => undefined)
 }
 
 // The transcript so far: a resumed session's earlier replies, and on a reload what was listed already.
@@ -49,7 +55,8 @@ async function readTranscript($: EngineInterface): Promise<void> {
 async function openPane($: EngineInterface, s: Strings): Promise<void> {
   // A pane opened for a look starts unfiltered; it takes the keys so typing searches at once.
   await update($, query, () => '')
-  await $.ui.open({ id: PANE, title: s.title, rows: 10, columns: 40, focus: true })
+  // Esc closes it while it holds the keys; the line above the prompt opens it again.
+  await $.ui.open({ id: PANE, title: s.title, rows: 10, columns: 40, focus: true, closeOnEscape: true })
   await update($, paneTick, n => n + 1)
 }
 
@@ -88,7 +95,7 @@ export const register: Register = (on, options) => {
       // ponytail: a subagent's cards are not listed
       const files = (e as unknown as { files?: unknown }).files
       if (!e.agentId && !('deny' in result) && !('isError' in result && result.isError)) {
-        await add($, fileItems(files, e.tool_use_id, await $.session.cwd(), await home($)))
+        await add($, fileItems(files, e.tool_use_id, await $.session.cwd(), await home($)), await now($))
       }
     } catch {
       // Listing must not change what the tool answered.
@@ -106,7 +113,7 @@ export const register: Register = (on, options) => {
           ? content.filter(block => block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string')
             .map(block => block.text as string).join('\n')
           : ''
-        await add($, linkItems(text, id, await home($)))
+        await add($, linkItems(text, id, await home($)), await now($))
       }
     } catch {
       // Listing must not interrupt the transcript append.
@@ -158,6 +165,8 @@ export const register: Register = (on, options) => {
     const all = await read($, items)
     const typed = Input ? await read($, query) : ''
     const shown = filterItems(all, typed)
+    const numbers = arrivalNumbers(all)
+    const time = (await now($)) ?? Date.now()
     const width = Math.max(12, e.props.bodyColumns - 1)
     return (
       <Box flexDirection="column">
@@ -180,7 +189,7 @@ export const register: Register = (on, options) => {
         {all.length > 0 && shown.length === 0 && <Text dimColor>{s.noMatch}</Text>}
         {shown.slice(0, DRAWN).map((item, i) => (
           <Box flexDirection="row">
-            <Button key={`open-${i}`} plain label={rowText(item, width - 2)} onPress={() => openItem($, item, s)} />
+            <Button key={`open-${i}`} plain label={rowText(item, numbers.get(item.href) ?? 0, time, width - 2)} onPress={() => openItem($, item, s)} />
             {item.jump
               ? <Button key={`jump-${i}`} plain label=" ›" onPress={() => jumpTo($, item, s)} />
               : <Text>{'  '}</Text>}
