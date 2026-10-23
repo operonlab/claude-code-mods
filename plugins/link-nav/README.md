@@ -7,7 +7,12 @@ Press a row to open it with macOS `open` on the machine the session runs on: the
 browser for a URL, the default app for a file (elsewhere a press shows the error).
 A file that would run when opened (an app, a script, an installer) is shown in
 Finder instead. Press `›` to jump the transcript to where it was
-sent. Enter in the search field opens the first match.
+sent. Enter in the search field opens the first match; Esc closes the pane.
+
+Each row reads `number  time  name · where`: its number in order of arrival
+(kept while a search reorders the rows) and the time it was handed over,
+`HH:MM`, or `MM-DD HH:MM` when not today. Rows read back after a resume have no
+time.
 
 A line above the prompt shows the count and the newest one while the pane is
 closed; press it to open the pane with the search field focused. `/link-nav`

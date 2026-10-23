@@ -1,6 +1,6 @@
 {
   "name": "link-nav",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Lists the files sent as cards and the links in replies this session, with fuzzy search; open one or jump to where it was sent.",
   "author": { "name": "Jones Hong" },
   "license": "MIT",

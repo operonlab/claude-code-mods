@@ -111,7 +111,7 @@ async function hasPromptBand($: EngineInterface): Promise<boolean> {
   return (await $.env.get('PROMPT_BAND')) === '1'
 }
 
-async function openPane($: EngineInterface, open: { id: typeof PANE; title: string; rows: 6; columns: 32; focus: true }, s: Strings): Promise<void> {
+async function openPane($: EngineInterface, open: { id: typeof PANE; title: string; rows: 6; columns: 32; focus: true; closeOnEscape: true }, s: Strings): Promise<void> {
   // Every open is the person's own: it starts unfiltered and takes the keys, so typing searches at once.
   await update($, query, () => '')
   await $.ui.open(open)
@@ -127,7 +127,8 @@ async function turnOff($: EngineInterface, s: Strings): Promise<void> {
 
 export const register: Register = (on, options) => {
   const s = stringsFor(options?.language)
-  const open = { id: PANE, title: s.title, rows: 6, columns: 32, focus: true } as const
+  // Esc closes the pane while it holds the keys; its line above the prompt opens it again.
+  const open = { id: PANE, title: s.title, rows: 6, columns: 32, focus: true, closeOnEscape: true } as const
   // session.start runs when the process starts (new, resumed, forked) and on every reload of this
   // mod, which keeps the list but not what came before the process: so the list is filled from the
   // transcript file each time. Not awaited: reading a long file must not hold up the start. Past the
@@ -160,7 +161,8 @@ export const register: Register = (on, options) => {
       if (id && isPersons && !e.agentId) {
         const text = promptText(e.message.content)
         if (text) {
-          await update($, turns, list => [...list, { id, text }].slice(-200))
+          const at = await $.clock.now().catch(() => undefined)
+          await update($, turns, list => [...list, { id, text, ...(at === undefined ? {} : { at }) }].slice(-200))
           await publish($, s)
           void showNewest($)
         }
@@ -223,6 +225,7 @@ export const register: Register = (on, options) => {
     // A phone's table has no Input: there the list shows unfiltered.
     const Input = 'Input' in table ? table.Input : undefined
     const list = await read($, turns)
+    const now = await $.clock.now().catch(() => Date.now())
     const note = await read($, history)
     const typed = Input ? await read($, query) : ''
     // A match keeps its prompt's own number and place, so the list still reads in order.
@@ -244,7 +247,7 @@ export const register: Register = (on, options) => {
       {typed.trim() !== '' && <Text dimColor>{s.count(shown.length, list.length)}</Text>}
       {list.length === 0 && <Text dimColor>{s.empty}</Text>}
       {list.length > 0 && shown.length === 0 && <Text dimColor>{s.noMatch}</Text>}
-      {shown.map(({ turn, i }) => <Button key={`turn-${i}`} plain label={rowLabel(i + 1, turn.text, width - 1)} onPress={() => jump(turn)} />)}
+      {shown.map(({ turn, i }) => <Button key={`turn-${i}`} plain label={rowLabel(i + 1, turn.text, width - 1, turn.at, now)} onPress={() => jump(turn)} />)}
     </Box>
   })
 }

@@ -6,7 +6,11 @@ back to "what did I ask an hour ago" takes a while.
 
 The pane opens with a search field focused: type to keep only the prompts that
 match (fuzzy, so `ath` finds `auth`; every word you type must match), each with
-its own number. Enter jumps to the newest match; Esc goes back to the prompt.
+its own number. Enter jumps to the newest match; Esc closes the pane.
+
+Each row reads `number  time  prompt`: the time it was sent, `HH:MM`, with the
+date in front (`MM-DD HH:MM`) when it was not today. Prompts read back after a
+resume take the time the transcript file gives.
 
 New sessions show one line above the prompt with the count and newest prompt.
 Press the line to expand the pane. Press the frame's close mark to collapse it

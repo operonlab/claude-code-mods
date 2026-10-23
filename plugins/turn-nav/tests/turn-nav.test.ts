@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { STRINGS, stringsFor } from '../hooks/strings'
-import { cellWidth, denyMessage, fitLine, historyTurns, label, promptText, rowLabel } from '../hooks/turns'
+import { cellWidth, denyMessage, fitLine, historyTurns, label, promptText, rowLabel, stamp } from '../hooks/turns'
 import { fuzzyScore } from '../hooks/fuzzy'
 import type { RenderElement } from 'claude-code'
 
@@ -152,7 +152,7 @@ test('the pane asks for a short inline block and a narrow dock', { options: { la
   const state = panes(on)
   await $.session.start(start)
   await $.command.run(command)
-  expect(state.args).toMatchObject({ id: 'turn-nav', rows: 6, columns: 32 })
+  expect(state.args).toMatchObject({ id: 'turn-nav', rows: 6, columns: 32, focus: true, closeOnEscape: true })
 })
 
 test('the line opens the pane on request', { options: { language: 'zh-TW' } }, async ($, on) => {
@@ -503,4 +503,28 @@ test('a phone has no search field and lists every prompt', { options: { language
 test('no search field before the first prompt', { options: { language: 'zh-TW' } }, async $ => {
   const ui = await $.ui.mount(pane)
   expect(await ui.find({ key: 'search' })).toBeUndefined()
+})
+
+test('times: same day as now shows HH:MM, another day adds MM-DD', () => {
+  const at = new Date(2026, 9, 23, 9, 7).getTime()
+  expect(stamp(at, new Date(2026, 9, 23, 23, 59).getTime())).toBe('09:07')
+  expect(stamp(at, new Date(2026, 9, 24, 0, 1).getTime())).toBe('10-23 09:07')
+  expect(label(3, 'hello', 40, at, at)).toBe('3 09:07 hello')
+  expect(label(3, 'hello', 40)).toBe('3 hello')
+})
+
+test('a prompt row shows its number, then the time it was sent', { options: { language: 'zh-TW' } }, async ($, on) => {
+  const T = Date.UTC(2026, 9, 23, 6, 5)
+  mock.clock(on, { now: T })
+  mock.session(on)
+  await $.session.append(prompt('first'))
+  const ui = await $.ui.mount(pane)
+  expect((await ui.find({ key: 'turn-0' }))?.text).toMatch(new RegExp(`^1 ${stamp(T, T)} first +›$`))
+})
+
+test('earlier prompts read from the transcript keep the time the file gives', () => {
+  const line = JSON.stringify({ type: 'user', uuid: 'u1', timestamp: '2026-10-23T06:05:00.000Z', origin: { kind: 'human' }, message: { content: 'hi' } })
+  expect(historyTurns(line).turns).toEqual([{ id: 'u1', text: 'hi', at: Date.UTC(2026, 9, 23, 6, 5) }])
+  const noTime = JSON.stringify({ type: 'user', uuid: 'u2', origin: { kind: 'human' }, message: { content: 'yo' } })
+  expect(historyTurns(noTime).turns).toEqual([{ id: 'u2', text: 'yo' }])
 })
