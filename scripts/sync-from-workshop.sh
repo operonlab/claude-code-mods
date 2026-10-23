@@ -1,7 +1,7 @@
 #!/bin/zsh -f
-# Copy the four published mods from the workshop monorepo into this repo.
+# Copy the published mods from the private mods folder into this repo.
 #
-#   scripts/sync-from-workshop.sh [workshop-plugins-dir]
+#   scripts/sync-from-workshop.sh [mods-dir]   (default ~/.claude/mods)
 #
 # Everything lands in a staging directory first. The marketplace file is
 # generated there, then three checks run: a secret scan, a scan for private
@@ -11,12 +11,13 @@
 set -u
 
 ROOT=${0:A:h:h}
-SRC=${1:-$HOME/workshop/plugins}
-MODS=(quiet-tools turn-nav hook-notices prompt-band)
+SRC=${1:-$HOME/.claude/mods}
+MODS=(quiet-tools turn-nav hook-notices prompt-band link-nav)
 # Names that must never ship: whoever runs this, by account name (which also
-# covers their home path) and git mail. Read at run time so this file names no one.
+# covers their home path) and git mail, read at run time so this file names no
+# one; and the private marketplace name, which a README config line would carry.
 mail=$(git -C "$SRC" config user.email 2>/dev/null)
-PRIVATE="${USER}${mail:+|$mail}"
+PRIVATE="${USER}${mail:+|$mail}|@local-mods"
 [[ -n $USER ]] || { print -u2 "sync: USER is empty, cannot scan for private names"; exit 1; }
 
 STAGE=$(mktemp -d)

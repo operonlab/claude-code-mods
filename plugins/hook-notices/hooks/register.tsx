@@ -45,7 +45,7 @@ async function isPlaced($: EngineInterface): Promise<boolean> {
 
 async function publish($: EngineInterface, s: Strings): Promise<void> {
   const list = await read($, notices)
-  const next = list.length === 0 || (await isPlaced($)) ? null : { label: bandLabel(list, await read($, seen), s), action: s.action }
+  const next = list.length === 0 || (await isPlaced($)) ? null : { label: bandLabel(list, await read($, seen), s) }
   await update($, chip, () => next)
 }
 
@@ -115,11 +115,10 @@ export const register: Register = (on, options) => {
     const { Box, Button } = $.ui.resolve(e)
     const below = await next(e)
     // No hotkey on this row: a plain Button draws one as `h: ` ahead of the label.
-    // Three cells stay free at the right so the › lines up with the navigator line's ✕.
     const width = Math.max(24, e.props.bodyColumns - 4)
     return (
       <Box flexDirection="column">
-        <Button key="open" plain dimColor label={fitRow(bandLabel(list, await read($, seen), s), s.action, width)} onPress={() => openPane($, open, s)} />
+        <Button key="open" plain dimColor label={fitRow(bandLabel(list, await read($, seen), s), width)} onPress={() => openPane($, open, s)} />
         {below}
       </Box>
     )

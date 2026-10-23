@@ -55,22 +55,16 @@ export function cellWidth(text: string): number {
   return width
 }
 
-/**
- * One row of exactly `width` cells: the text (cut with … when it must be), then the
- * action at the right end. Drawn as one Button, the whole row is the tap target; a
- * phone column is about 4px wide, too narrow to aim at a short label.
- */
-export function fitRow(text: string, action: string, width: number): string {
-  const tail = ` ${action} ›`
-  const room = width - cellWidth(tail) - 1
+/** Cut with … when needed, then pad the whole tap target to `width` cells. */
+export function fitRow(text: string, width: number): string {
   let body = text
-  if (cellWidth(body) > room) {
+  if (cellWidth(body) > width) {
     let out = ''
     for (const char of body) {
-      if (cellWidth(out + char) > room - 1) break
+      if (cellWidth(out + char) > width - 1) break
       out += char
     }
     body = `${out}…`
   }
-  return body + ' '.repeat(Math.max(1, width - cellWidth(body) - cellWidth(tail))) + tail
+  return body + ' '.repeat(Math.max(0, width - cellWidth(body)))
 }

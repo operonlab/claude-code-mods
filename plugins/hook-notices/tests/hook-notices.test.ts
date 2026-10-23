@@ -58,8 +58,8 @@ test('headline takes the first non-empty line and truncates it', () => {
 })
 
 test('formatNotice cleans headings, markers, and Markdown while keeping issue numbers', () => {
-  expect(formatNotice('⚠ 排程有 1 個 job 失敗\nws-assets-backup — 從未執行過\n  → cat ~/x.err')).toEqual({
-    title: '排程有 1 個 job 失敗', details: ['ws-assets-backup — 從未執行過', '→ cat ~/x.err'],
+  expect(formatNotice('⚠ 排程有 1 個 job 失敗\nnightly-backup — 從未執行過\n  → cat ~/x.err')).toEqual({
+    title: '排程有 1 個 job 失敗', details: ['nightly-backup — 從未執行過', '→ cat ~/x.err'],
   })
   expect(formatNotice('## GitHub PM Status\n### Ready\n- #81 auto-survey: slow\n**Total**: 3 open')).toEqual({
     title: 'GitHub PM Status', details: ['Ready', '• #81 auto-survey: slow', 'Total: 3 open'],
@@ -68,13 +68,14 @@ test('formatNotice cleans headings, markers, and Markdown while keeping issue nu
   expect(formatNotice('  \n')).toEqual({ title: '', details: [] })
 })
 
-test('fitRow fills the width so the whole line is the tap target, the action at its right end', () => {
-  const row = fitRow('🪝 2 則 hook 訊息', '展開', 30)
+test('fitRow pads to width without an action tail and cuts wide text', () => {
+  const row = fitRow('🪝 2 則 hook 訊息', 30)
   expect(cellWidth(row)).toBe(30)
-  expect(row).toMatch(/^🪝 2 則 hook 訊息 +展開 ›$/)
-  const long = fitRow('🪝 9 則 hook 訊息 · ⚠ 1 · 排程有 1 個 job 上次執行失敗、1 個從未執行過', '展開', 30)
+  expect(row).toMatch(/^🪝 2 則 hook 訊息 +$/)
+  const long = fitRow('🪝 9 則 hook 訊息 · ⚠ 1 · 排程有 1 個 job 上次執行失敗、1 個從未執行過', 30)
   expect(cellWidth(long)).toBe(30)
-  expect(long).toMatch(/… +展開 ›$/)
+  expect(long.trimEnd()).toMatch(/…$/)
+  expect(row.includes('›')).toBe(false)
 })
 
 test('the collapsed line is one button as wide as the band', { options: { language: 'zh-TW' } }, async ($, on) => {
@@ -82,9 +83,8 @@ test('the collapsed line is one button as wide as the band', { options: { langua
   await start($)
   const ui = await $.ui.mount(ABOVE)
   await clock.advance(1000)
-  // Three cells are left at the right so the › lines up with the navigator line's ✕.
   expect(cellWidth((await ui.find({ key: 'open' }))?.text ?? '')).toBe(ABOVE.props.bodyColumns - 4)
-  expect((await ui.find({ key: 'open' }))?.text).toMatch(/^🪝 hook 訊息 · 1 則 · first notice +展開 ›$/)
+  expect((await ui.find({ key: 'open' }))?.text).toMatch(/^🪝 hook 訊息 · 1 則 · first notice +$/)
 })
 
 test('the line carries no hotkey, which a plain Button draws as `h: ` ahead of the label', { options: { language: 'zh-TW' } }, async ($, on) => {
@@ -127,8 +127,17 @@ test('the line opens a scrollable pane, steps aside while it is drawn, and comes
   expect((await ui.find({ key: 'open' }))?.text).toMatch(/1 則.*third notice/)
 })
 
-// The person's close mark raises ui.close, which the kit cannot raise; that path calls
-// the same markRead as /hook-notices and was checked by pressing ✕ in a real session.
+test("the pane draws no close button of its own: the frame's close mark is the engine's", { options: { language: 'zh-TW' } }, async ($, on) => {
+  const { clock } = world(on, { text: JSON.stringify(FIRST) })
+  await start($)
+  const line = await $.ui.mount(ABOVE)
+  await clock.advance(1000)
+  await line.press({ key: 'open' })
+  const paneUi = await $.ui.mount(PANE)
+  expect(await paneUi.find({ key: 'close' })).toBeUndefined()
+  expect(await paneUi.findAll({ type: 'Button' })).toEqual([])
+})
+
 test('a notice that arrives while the pane is drawn is drawn too, so closing marks it read', { options: { language: 'zh-TW' } }, async ($, on) => {
   const file = { text: JSON.stringify(FIRST) }
   const { clock } = world(on, file)
@@ -207,7 +216,7 @@ const BAND = {
       const { value } = await $.state.get({ plugin: 'hook-notices', key: 'chip' } as const)
       const below = await next(e)
       const { Box, Button, Text } = $.ui.resolve(e)
-      return h(Box, { flexDirection: 'column' }, value ? h(Button, { key: 'hook-notices', label: `${value.label} | ${value.action}`, onPress: () => undefined }) : h(Text, {}, 'no line'), below) as RenderElement
+      return h(Box, { flexDirection: 'column' }, value ? h(Button, { key: 'hook-notices', label: value.label, onPress: () => undefined }) : h(Text, {}, 'no line'), below) as RenderElement
     })
   },
 }
@@ -218,12 +227,12 @@ test('the line is published for prompt-band: the summary while closed, nothing w
   const ui = await $.ui.mount(ABOVE)
   expect(await ui.find({ type: 'Text', text: 'no line' })).toBeDefined()
   await clock.advance(1000)
-  expect((await ui.find({ key: 'hook-notices' }))?.text).toBe('🪝 hook 訊息 · 2 則 · ⚠ 1 · second notice | 展開')
+  expect((await ui.find({ key: 'hook-notices' }))?.text).toBe('🪝 hook 訊息 · 2 則 · ⚠ 1 · second notice')
   await $.command.run(COMMAND)
   expect(await ui.find({ type: 'Text', text: 'no line' })).toBeDefined()
   await $.ui.mount(PANE)
   await $.command.run(COMMAND)
-  expect((await ui.find({ key: 'hook-notices' }))?.text).toBe('🪝 hook 訊息 · 2 則 · 已讀 | 展開')
+  expect((await ui.find({ key: 'hook-notices' }))?.text).toBe('🪝 hook 訊息 · 2 則 · 已讀')
 })
 
 test('a reload republishes the line, so a pane the reload dropped is offered again', { plugins: [BAND], options: { language: 'zh-TW' } }, async ($, on) => {
@@ -235,7 +244,7 @@ test('a reload republishes the line, so a pane the reload dropped is offered aga
   expect(await ui.find({ type: 'Text', text: 'no line' })).toBeDefined()
   pane.placed = false
   await start($)
-  expect((await ui.find({ key: 'hook-notices' }))?.text).toMatch(/1 則 · first notice \| 展開$/)
+  expect((await ui.find({ key: 'hook-notices' }))?.text).toMatch(/1 則 · first notice$/)
 })
 
 test("pressing prompt-band's line opens the pane", { plugins: [BAND], options: { language: 'zh-TW' } }, async ($, on) => {
@@ -261,7 +270,7 @@ test('default language renders English hook label', async ($, on) => {
   await start($)
   const ui = await $.ui.mount(ABOVE)
   await clock.advance(1000)
-  expect((await ui.find({ key: 'open' }))?.text).toMatch(/^🪝 Hook messages · 1 · first notice +Open ›$/)
+  expect((await ui.find({ key: 'open' }))?.text).toMatch(/^🪝 Hook messages · 1 · first notice +$/)
 })
 
 test('unknown and missing languages use English strings', () => {

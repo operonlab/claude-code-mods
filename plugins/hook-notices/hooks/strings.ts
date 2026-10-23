@@ -1,6 +1,5 @@
 export type Strings = {
   title: string
-  action: string
   folded: string
   open: string
   empty: string
@@ -11,7 +10,6 @@ export type Strings = {
 export const STRINGS: Record<'en' | 'zh-TW', Strings> = {
   en: {
     title: 'Hook messages',
-    action: 'Open',
     folded: 'Hook messages folded',
     open: 'Hook messages open',
     empty: 'No hook messages yet',
@@ -20,7 +18,6 @@ export const STRINGS: Record<'en' | 'zh-TW', Strings> = {
   },
   'zh-TW': {
     title: 'hook 訊息',
-    action: '展開',
     folded: 'hook 訊息已收起',
     open: 'hook 訊息已展開',
     empty: '還沒有 hook 訊息',
