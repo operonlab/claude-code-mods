@@ -108,8 +108,9 @@ export function mergeItems(list: NavItem[], found: Found[], keep = 500): NavItem
     const old = byHref.get(item.href)
     seq += 1
     const jump = item.jump ?? old?.jump
+    const at = item.at ?? old?.at
     const label = old && isBare(item) ? old.label : item.label
-    byHref.set(item.href, { ...item, label, seq, ...(jump ? { jump } : {}) })
+    byHref.set(item.href, { ...item, label, seq, ...(jump ? { jump } : {}), ...(at === undefined ? {} : { at }) })
   }
   return [...byHref.values()].sort((a, b) => a.seq - b.seq).slice(-keep)
 }
@@ -150,9 +151,26 @@ export function filterItems(list: NavItem[], query: string): NavItem[] {
     .map(hit => hit.item)
 }
 
-/** A row: kind, name, then where it lives, fitted to `width` cells. */
-export function rowText(item: NavItem, width: number): string {
-  return fitLine(`${item.kind === 'file' ? '📄' : '🔗'} ${item.label} · ${item.where}`, width)
+const pad = (v: number) => String(v).padStart(2, '0')
+
+/** `HH:MM` in local time; `MM-DD HH:MM` when `at` is not on the same day as `now`. Twin of turn-nav's stamp. */
+export function stamp(at: number, now: number): string {
+  const d = new Date(at)
+  const n = new Date(now)
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const sameDay = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
+  return sameDay ? time : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`
+}
+
+/** Each item's number in order of arrival, 1 for the first, kept while a search reorders the rows. */
+export function arrivalNumbers(list: NavItem[]): Map<string, number> {
+  return new Map([...list].sort((a, b) => a.seq - b.seq).map((item, i) => [item.href, i + 1]))
+}
+
+/** A row: its number, the time it came, kind, name, then where it lives, fitted to `width` cells. */
+export function rowText(item: NavItem, n: number, now: number, width: number): string {
+  const when = item.at === undefined ? '' : `${stamp(item.at, now)} `
+  return fitLine(`${n} ${when}${item.kind === 'file' ? '📄' : '🔗'} ${item.label} · ${item.where}`, width)
 }
 
 /** What `open` is handed: a file's own path, or the URL. */

@@ -11,6 +11,8 @@ export type NavItem = {
   jump?: string
   /** Order of arrival, newest highest. */
   seq: number
+  /** When it was last handed over (ms since the epoch); absent for what a resume read back. */
+  at?: number
 }
 
 declare module 'claude-code' {

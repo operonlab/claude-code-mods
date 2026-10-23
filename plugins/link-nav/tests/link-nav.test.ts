@@ -1,8 +1,10 @@
 import { expect, mock, test } from 'claude-code/testing'
-import { fileItem, fileItems, filterItems, fuzzyScore, linkItems, mergeItems, openArgs, rowText, cellWidth } from '../hooks/links'
+import { arrivalNumbers, fileItem, fileItems, filterItems, fuzzyScore, linkItems, mergeItems, openArgs, rowText, cellWidth, stamp } from '../hooks/links'
 import type { NavItem } from '../types'
 
 const HOME = '/Users/me'
+// 2026-10-23 06:05 UTC; rows show it in the runner's local time, so expectations go through stamp too.
+const T0 = Date.UTC(2026, 9, 23, 6, 5)
 
 const pane = <S extends 'terminal' | 'desktop' | 'vscode' | 'mobile'>(surface: S) => ({
   plugin: 'link-nav', surface, component: 'Pane', requestId: 'link-nav',
@@ -99,16 +101,19 @@ test('fuzzy search: letters in order with gaps, every word must match, whole wor
 
 test('a row fits its width in terminal cells', () => {
   const [item] = items(fileItem('/Users/me/很長的中文檔名很長的中文檔名很長的中文檔名.png', 't', '/w', HOME))
-  expect(cellWidth(rowText(item!, 30))).toBe(30)
+  expect(cellWidth(rowText(item!, 12, 0, 30))).toBe(30)
+  expect(cellWidth(rowText({ ...item!, at: 0 }, 12, 0, 30))).toBe(30)
 })
 
 test('reply links and card files are listed; a subagent\'s are not; search filters', { options: { language: 'zh-TW' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: T0 })
   mock.session(on)
   mock.env(on, { HOME })
   on('session.cwd', () => ({ value: '/work' }))
   on('tool.call', () => ({ result: {} }))
   await $.session.append(reply('Done: [report](https://example.com/report) and [/Users/me/a.png](file:///Users/me/a.png)', 'row-1'))
   await $.session.append(reply('agent link https://agent.dev/x', 'row-2', 'agent-1'))
+  await clock.advance(90_000)
   await $.tool.call({ tool: 'SendUserFile', tool_use_id: 'toolu_1', files: ['out/chart.svg'], status: 'normal' })
 
   const ui = await $.ui.mount(pane('terminal'))
@@ -120,14 +125,17 @@ test('reply links and card files are listed; a subagent\'s are not; search filte
     }
     return out
   }
+  const t0 = stamp(T0, T0 + 90_000)
+  const t1 = stamp(T0 + 90_000, T0 + 90_000)
+  // Newest first, each with its number in order of arrival and the time it came.
   expect(await rows()).toEqual([
-    '📄 chart.svg · /work/out',
-    '📄 a.png · ~',
-    '🔗 report · example.com',
+    `3 ${t1} 📄 chart.svg · /work/out`,
+    `2 ${t0} 📄 a.png · ~`,
+    `1 ${t0} 🔗 report · example.com`,
   ])
   expect(await ui.find({ key: 'jump-0' })).toBeDefined()
   await ui.input({ key: 'search', text: 'rprt', kind: 'change' })
-  expect(await rows()).toEqual(['🔗 report · example.com'])
+  expect(await rows()).toEqual([`1 ${t0} 🔗 report · example.com`])
   await ui.input({ key: 'search', text: 'nothing-like-it', kind: 'change' })
   expect(await rows()).toEqual([])
   expect(await ui.find({ type: 'Text', text: /沒有符合的/ })).toBeDefined()
@@ -140,7 +148,7 @@ test('every surface draws the list; a phone, which has no Input, draws it unfilt
   await $.session.append(reply('[one](https://one.dev)', 'row-1'))
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount(pane(surface))
-    expect((await ui.find({ key: 'open-0' }))?.text.trim()).toBe('🔗 one · one.dev')
+    expect((await ui.find({ key: 'open-0' }))?.text.trim()).toMatch(/^1 (\d\d:\d\d )?🔗 one · one\.dev$/)
     if (surface === 'mobile') expect(await ui.find({ key: 'search' })).toBeUndefined()
     else expect(await ui.find({ key: 'search' })).toBeDefined()
     await ui.unmount()
@@ -151,11 +159,13 @@ test('/link-nav opens and closes the pane', { options: { language: 'zh-TW' } }, 
   mock.store(on)
   let open = false
   on('ui.panes', () => ({ value: open ? [{ id: 'link-nav', title: '連結與檔案', isShown: true, isFocused: true, isPlaced: true }] : [] }))
-  on('ui.open', () => { open = true; return { value: { isPlaced: true } } })
+  let args: Record<string, unknown> = {}
+  on('ui.open', (_$, e) => { open = true; args = { ...e }; return { value: { isPlaced: true } } })
   on('ui.close', () => { open = false; return { value: undefined } })
   const command = { command: 'link-nav', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } } as const
   expect((await $.command.run(command)).text).toBe('連結導覽已開啟')
   expect(open).toBe(true)
+  expect(args).toMatchObject({ id: 'link-nav', focus: true, closeOnEscape: true })
   expect((await $.command.run(command)).text).toMatch(/^連結導覽已關閉/)
   expect(open).toBe(false)
 })
@@ -178,4 +188,21 @@ test('a press opens a URL or a file, but only reveals a file that would run', ()
     expect(openArgs(f!).revealed).toBe(true)
     expect(openArgs(f!).argv.slice(0, 2)).toEqual(['/usr/bin/open', '-R'])
   }
+})
+
+test('times: same day as now shows HH:MM, another day adds MM-DD', () => {
+  const at = new Date(2026, 9, 23, 9, 7).getTime()
+  expect(stamp(at, new Date(2026, 9, 23, 23, 59).getTime())).toBe('09:07')
+  expect(stamp(at, new Date(2026, 9, 24, 0, 1).getTime())).toBe('10-23 09:07')
+})
+
+test('numbers follow arrival and stay put while a search reorders the rows', () => {
+  const list = mergeItems([], [...linkItems('[a](https://a.dev) [b](https://b.dev) [c](https://c.dev)', 'r', HOME)])
+  const numbers = arrivalNumbers(list)
+  expect(filterItems(list, 'b').map(i => numbers.get(i.href))).toEqual([2])
+  expect(filterItems(list, '').map(i => numbers.get(i.href))).toEqual([3, 2, 1])
+  // A repeat moves to newest and takes the newest number; the time it came moves with it.
+  const again = mergeItems(list, linkItems('https://a.dev', 'r2', HOME).map(f => ({ ...f, at: 5 })))
+  expect(arrivalNumbers(again).get('https://a.dev')).toBe(3)
+  expect(again.find(i => i.href === 'https://a.dev')?.at).toBe(5)
 })

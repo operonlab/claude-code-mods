@@ -1,6 +1,6 @@
 {
   "name": "turn-nav",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Lists your prompts in a pane, with fuzzy search, and jumps the transcript to a selected prompt.",
   "author": { "name": "Jones Hong" },
   "license": "MIT",

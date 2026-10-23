@@ -54,7 +54,7 @@ async function hasPromptBand($: EngineInterface): Promise<boolean> {
   return (await $.env.get('PROMPT_BAND')) === '1'
 }
 
-async function openPane($: EngineInterface, open: { id: typeof PANE; title: string; rows: 12; columns: 48 }, s: Strings): Promise<void> {
+async function openPane($: EngineInterface, open: { id: typeof PANE; title: string; rows: 12; columns: 48; focus: true; closeOnEscape: true }, s: Strings): Promise<void> {
   await $.ui.open(open)
   await update($, paneTick, n => n + 1)
   await publish($, s)
@@ -69,7 +69,8 @@ async function markRead($: EngineInterface, s: Strings): Promise<void> {
 
 export const register: Register = (on, options) => {
   const s = stringsFor(options?.language)
-  const open = { id: PANE, title: s.title, rows: 12, columns: 48 } as const
+  // Opened by the person, it takes the keys so Esc closes it; its line above the prompt opens it again.
+  const open = { id: PANE, title: s.title, rows: 12, columns: 48, focus: true, closeOnEscape: true } as const
   on('session.start', async ($, e, next) => {
     await $.env.set('HOOK_NOTICES_SINK', '1')
     await $.command.register({ name: 'hook-notices', description: "Show or hide this session's hook messages" })

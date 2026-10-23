@@ -10,7 +10,8 @@ are reading. hook-notices folds them into one line above the prompt:
 
 The count is what you have not read yet, `⚠` counts alerts among them, and the
 headline is the newest alert (or the newest message). Press the line, or run
-`/hook-notices`, to open every message of the session in a scrollable pane.
+`/hook-notices`, to open every message of the session in a scrollable pane; it
+takes the keys as it opens, and Esc closes it.
 
 ## Your hooks have to hand their messages over
 
