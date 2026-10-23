@@ -1,6 +1,6 @@
 # claude-code-mods
 
-Four [Claude Code](https://claude.com/claude-code) mods for long sessions.
+Five [Claude Code](https://claude.com/claude-code) mods for long sessions.
 After an hour of work the transcript is mostly tool output and hook messages,
 and the thing you actually want to reread — what you asked, what Claude
 answered, what went wrong — is buried between them. These mods fold the
@@ -15,8 +15,9 @@ noise down to one line each and keep failures in plain sight.
 |---|---|
 | [quiet-tools](plugins/quiet-tools) | A successful tool call becomes one dim line, its output hidden but its key facts kept (`committed 5f78e2b → main`, `in background`, `No matches found`). A call a hook refused becomes one red line with the reason. Calls that ran and failed stay in full, and `ctrl+o` shows every call in full. |
 | [hook-notices](plugins/hook-notices) | Hook messages fold into one line above the prompt — count, unread alerts, newest headline — and open in a scrollable pane. |
-| [turn-nav](plugins/turn-nav) | A pane listing the prompts you sent; press one and the transcript jumps there. |
+| [turn-nav](plugins/turn-nav) | A pane listing the prompts you sent, with fuzzy search; press one and the transcript jumps there. |
 | [prompt-band](plugins/prompt-band) | Puts hook-notices' and turn-nav's lines on one row. |
+| [link-nav](plugins/link-nav) | A pane listing the files Claude sent you as cards and the links in its replies, with fuzzy search; press one to open it or jump to where it was sent. |
 
 ## Install
 
@@ -27,6 +28,7 @@ At the prompt of a Claude Code session in a terminal, one line per mod:
 /plugin install hook-notices --marketplace operonlab/claude-code-mods
 /plugin install turn-nav --marketplace operonlab/claude-code-mods
 /plugin install prompt-band --marketplace operonlab/claude-code-mods
+/plugin install link-nav --marketplace operonlab/claude-code-mods
 ```
 
 Answer `y` to add the marketplace the first time, then pick a scope. Each mod
@@ -55,7 +57,7 @@ error block per attempt:
 
 ## Language
 
-turn-nav, hook-notices and quiet-tools take a `language` option, `en`
+turn-nav, hook-notices, quiet-tools and link-nav take a `language` option, `en`
 (default) or `zh-TW`, in `/config` or in settings:
 
 ```json
@@ -66,7 +68,7 @@ turn-nav, hook-notices and quiet-tools take a `language` option, `en`
 
 ## Requirements
 
-Claude Code with mods support; tested on 2.1.295. Jumping to a prompt needs the
+Claude Code with mods support; tested on 2.1.309. Jumping to a prompt needs the
 fullscreen layout (`"tui": "fullscreen"`).
 
 ## Development

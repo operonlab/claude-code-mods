@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { STRINGS, stringsFor } from '../hooks/strings'
-import { cellWidth, denyMessage, label, promptText, rowLabel } from '../hooks/turns'
+import { cellWidth, denyMessage, fitLine, historyTurns, label, promptText, rowLabel } from '../hooks/turns'
+import { fuzzyScore } from '../hooks/fuzzy'
 import type { RenderElement } from 'claude-code'
 
 const pane = {
@@ -78,12 +79,15 @@ test('/turn-nav opens and closes the pane', { options: { language: 'zh-TW' } }, 
   expect(open).toBe(false)
 })
 
-// `placeNext` is whether the engine draws the next open: below its width threshold an
-// unasked open (session start) waits undrawn, while an asked one (command, press) is drawn.
-function panes(on: Parameters<typeof mock.store>[0]) {
-  const state = { open: false, placed: false, placeNext: true, opened: 0, args: {} as Record<string, unknown>, promptBand: undefined as string | undefined }
+// `placeNext` models whether the engine draws the next requested open.
+// `read` answers the host command that reads the transcript file (default: no file yet).
+function panes(on: Parameters<typeof mock.store>[0], read: (argv: readonly string[]) => Run | Promise<Run> = () => ran('', { exitCode: 3 })) {
+  const state = { open: false, placed: false, placeNext: true, opened: 0, args: {} as Record<string, unknown>, promptBand: undefined as string | undefined, reads: [] as (readonly string[])[] }
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.id', () => ({ value: 'sid-1' }))
+  on('classic.SessionStart', () => ({}))
+  on('process.run', async (_$, e) => { state.reads.push(e.argv); return { value: await read(e.argv) } })
   on('ui.panes', () => ({ value: state.open ? [{ id: 'turn-nav', title: '導覽', isShown: state.placed, isFocused: false, isPlaced: state.placed }] : [] }))
   on('ui.open', (_$, e) => {
     state.open = true; state.placed = state.placeNext; state.opened += 1; state.args = { ...e }
@@ -102,27 +106,35 @@ const above = {
 
 const start = { cwd: '/work', surface: 'terminal', isInteractive: true } as const
 
-test('a new session opens the pane by default', { options: { language: 'zh-TW' } }, async ($, on) => {
+test('a new session leaves the pane closed and shows its line', { options: { language: 'zh-TW' } }, async ($, on) => {
   mock.store(on)
   const state = panes(on)
   await $.session.start(start)
-  expect(state.opened).toBe(1)
+  expect(state.opened).toBe(0)
+  const ui = await $.ui.mount(above)
+  expect(await ui.find({ key: 'nav-open' })).toBeDefined()
 })
 
 test('closing with /turn-nav is remembered by the next session, and reopening too', { options: { language: 'zh-TW' } }, async ($, on) => {
   mock.store(on)
   const state = panes(on)
   await $.session.start(start)
+  expect((await $.command.run(command)).text).toBe('導覽已開啟')
+  expect(state.opened).toBe(1)
   expect((await $.command.run(command)).text).toMatch(/^導覽已關閉/)
 
   await $.session.start(start)
   expect(state.opened).toBe(1)
   expect(state.open).toBe(false)
+  const ui = await $.ui.mount(above)
+  expect(await ui.find({ key: 'nav-open' })).toBeUndefined()
 
   expect((await $.command.run(command)).text).toBe('導覽已開啟')
   state.open = false
   await $.session.start(start)
-  expect(state.open).toBe(true)
+  expect(state.open).toBe(false)
+  expect(state.opened).toBe(2)
+  expect(await ui.find({ key: 'nav-open' })).toBeDefined()
 })
 
 test('/turn-nav opens a pane that is open but not drawn, instead of closing it', { options: { language: 'zh-TW' } }, async ($, on) => {
@@ -139,19 +151,18 @@ test('the pane asks for a short inline block and a narrow dock', { options: { la
   mock.store(on)
   const state = panes(on)
   await $.session.start(start)
+  await $.command.run(command)
   expect(state.args).toMatchObject({ id: 'turn-nav', rows: 6, columns: 32 })
 })
 
-test('a pane waiting undrawn shows a one-line entry that opens it', { options: { language: 'zh-TW' } }, async ($, on) => {
+test('the line opens the pane on request', { options: { language: 'zh-TW' } }, async ($, on) => {
   mock.store(on)
   const state = panes(on)
-  state.placeNext = false
   await $.session.start(start)
   const ui = await $.ui.mount(above)
   expect((await ui.find({ key: 'nav-open' }))).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'engine band' })).toBeDefined()
 
-  state.placeNext = true
   await ui.press({ key: 'nav-open' })
   expect(state.placed).toBe(true)
   expect(await ui.find({ key: 'nav-open' })).toBeUndefined()
@@ -162,6 +173,8 @@ test('no entry while the pane is drawn, or after it is closed', { options: { lan
   const state = panes(on)
   await $.session.start(start)
   const ui = await $.ui.mount(above)
+  expect(await ui.find({ key: 'nav-open' })).toBeDefined()
+  await ui.press({ key: 'nav-open' })
   expect(await ui.find({ key: 'nav-open' })).toBeUndefined()
   await $.command.run(command)
   expect(state.open).toBe(false)
@@ -172,71 +185,33 @@ test('no entry while the pane is drawn, or after it is closed', { options: { lan
 // Opening the pane scrolls it to the newest turn. The kit answers a pane's own scroll
 // without exposing the offset, so that is verified by opening it in a real session.
 
-// Closing by the pane's own mark (or ctrl+x x) raises ui.close with origin person, which
-// collapses the navigator to its one line. The kit has no call that raises ui.close, so that
-// path is verified by closing it in a real session; the collapsed state itself is seeded below.
-
-test('a collapsed navigator is one line that opens it again, or turns it off', { options: { language: 'zh-TW' } }, async ($, on) => {
-  mock.store(on, { mode: 'collapsed' })
-  const state = panes(on)
-  await $.session.start(start)
-  expect(state.opened).toBe(0)
-  const ui = await $.ui.mount(above)
-  expect((await ui.find({ key: 'nav-open' }))?.text).toMatch(/^🧭 導覽 · 0 則 +開啟 ›$/)
-
-  await ui.press({ key: 'nav-open' })
-  expect(state.placed).toBe(true)
-  expect(await ui.find({ key: 'nav-open' })).toBeUndefined()
-})
-
-test('the collapsed line carries no hotkey, which a plain Button draws as `n: ` ahead of the label', { options: { language: 'zh-TW' } }, async ($, on) => {
-  mock.store(on, { mode: 'collapsed' })
-  panes(on)
-  await $.session.start(start)
-  const ui = await $.ui.mount(above)
-  const plainWithHotkey = (await ui.findAll({ type: 'Button' })).filter(b => b.props.plain && b.props.hotkey !== undefined)
-  expect(plainWithHotkey.map(b => b.key)).toEqual([])
-  // The line, a one-cell gap and the ✕ fill the band less one cell, the › level with the hook line's.
-  expect(cellWidth((await ui.find({ key: 'nav-open' }))?.text ?? '')).toBe(above.props.bodyColumns - 4)
-})
-
-test('turning the collapsed line off hides it in this and later sessions', { options: { language: 'zh-TW' } }, async ($, on) => {
-  mock.store(on, { mode: 'collapsed' })
-  const state = panes(on)
-  await $.session.start(start)
-  const ui = await $.ui.mount(above)
-  await ui.press({ key: 'nav-off' })
-  expect(await ui.find({ key: 'nav-open' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'engine band' })).toBeDefined()
-
-  await $.session.start(start)
-  expect(state.opened).toBe(0)
-  expect(await ui.find({ key: 'nav-open' })).toBeUndefined()
-  expect((await $.command.run(command)).text).toBe('導覽已開啟')
-  expect(state.placed).toBe(true)
-})
-
-test('the collapsed line matches the hook line: name · count · newest prompt, › aligned, a small ✕', { options: { language: 'zh-TW' } }, async ($, on) => {
-  mock.store(on, { mode: 'collapsed' })
-  mock.session(on)
-  panes(on)
-  await $.session.start(start)
-  await $.session.append(prompt('first'))
-  await $.session.append(prompt('你知道wormgpt?\nmore'))
-  const ui = await $.ui.mount(above)
-  const open = (await ui.find({ key: 'nav-open' }))?.text ?? ''
-  expect(open).toMatch(/^🧭 導覽 · 2 則 · 你知道wormgpt\? +開啟 ›$/)
-  expect(cellWidth(open)).toBe(above.props.bodyColumns - 4)
-  expect((await ui.find({ key: 'nav-off' }))?.text).toBe('✕')
-})
-
-test('a navigator closed by its mark before this change starts collapsed', { options: { language: 'zh-TW' } }, async ($, on) => {
-  mock.store(on, { isOpen: false })
+test('legacy collapsed and isOpen false show the line without opening', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on, { mode: 'collapsed', isOpen: false })
   const state = panes(on)
   await $.session.start(start)
   expect(state.opened).toBe(0)
   const ui = await $.ui.mount(above)
   expect(await ui.find({ key: 'nav-open' })).toBeDefined()
+})
+
+test('undrawn line has no close button or action word', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  const state = panes(on)
+  state.placeNext = false
+  await $.session.start(start)
+  const ui = await $.ui.mount(above)
+  const line = (await ui.find({ key: 'nav-open' }))?.text ?? ''
+  expect(line).toMatch(/^🧭 導覽 · 0 則 +$/)
+  expect(cellWidth(line)).toBe(above.props.bodyColumns - 4)
+  expect(await ui.find({ key: 'nav-off' })).toBeUndefined()
+  expect(line.includes('開啟')).toBe(false)
+  expect(line.includes('✕')).toBe(false)
+  expect((await ui.findAll({ type: 'Button' })).filter(b => b.props.hotkey !== undefined)).toHaveLength(0)
+})
+
+test('fitLine cuts wide text and pads without an action tail', () => {
+  expect(cellWidth(fitLine('🧭 導覽', 20))).toBe(20)
+  expect(fitLine('abcdefghijk', 8)).toBe('abcdefg…')
 })
 
 test('a refused jump names fullscreen only when that is the reason', () => {
@@ -252,6 +227,14 @@ test('outside fullscreen the pane says it can only list, not jump', { options: {
   expect((await ui.find({ key: 'turn-0' }))?.text).toMatch(/^1 first/)
 })
 
+test("the pane draws no close button of its own: the frame's close mark is the engine's", { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.session(on)
+  await $.session.append(prompt('first'))
+  const ui = await $.ui.mount(pane)
+  expect(await ui.find({ key: 'close' })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['turn-0'])
+})
+
 test('in fullscreen the pane shows only the turns', { options: { language: 'zh-TW' } }, async ($, on) => {
   mock.session(on)
   await $.session.append(prompt('first'))
@@ -261,10 +244,10 @@ test('in fullscreen the pane shows only the turns', { options: { language: 'zh-T
 
 test('empty pane explains that there is no conversation yet', { options: { language: 'zh-TW' } }, async $ => {
   const ui = await $.ui.mount(pane)
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('還沒有對話')
+  expect(await ui.find({ type: 'Text', text: '還沒有對話' })).toBeDefined()
 })
 
-// A stand-in for prompt-band: draws the line this mod publishes, and its ✕, as its own Buttons.
+// A stand-in for prompt-band: draws the line this mod publishes.
 const BAND = {
   name: 'prompt-band',
   register(on: Parameters<typeof mock.store>[0]) {
@@ -273,7 +256,7 @@ const BAND = {
       const below = await next(e)
       const { Box, Button, Text } = $.ui.resolve(e)
       return h(Box, { flexDirection: 'column' }, value
-        ? h(Box, { flexDirection: 'row' }, h(Button, { key: 'turn-nav', label: `${value.label} | ${value.action}`, onPress: () => undefined }), h(Button, { key: 'turn-nav-off', label: '✕', onPress: () => undefined }))
+        ? h(Button, { key: 'turn-nav', label: value.label, onPress: () => undefined })
         : h(Text, {}, 'no line'), below) as RenderElement
     })
   },
@@ -287,26 +270,13 @@ test('the line is published for prompt-band: nothing while the pane is drawn or 
   state.promptBand = '1'
   await $.session.start(start)
   const ui = await $.ui.mount(above)
-  expect((await ui.find({ key: 'turn-nav' }))?.text).toBe('🧭 導覽 · 0 則 | 開啟')
+  expect((await ui.find({ key: 'turn-nav' }))?.text).toBe('🧭 導覽 · 0 則')
   await $.session.append(prompt('第一個問題\nmore'))
-  expect((await ui.find({ key: 'turn-nav' }))?.text).toBe('🧭 導覽 · 1 則 · 第一個問題 | 開啟')
+  expect((await ui.find({ key: 'turn-nav' }))?.text).toBe('🧭 導覽 · 1 則 · 第一個問題')
   state.placeNext = true
   await $.ui.press({ plugin: 'prompt-band', key: 'turn-nav' })
   expect(state.placed).toBe(true)
   expect(await ui.find({ type: 'Text', text: 'no line' })).toBeDefined()
-})
-
-test("pressing prompt-band's ✕ turns the navigator off", { plugins: [BAND], options: { language: 'zh-TW' } }, async ($, on) => {
-  mock.store(on)
-  const state = panes(on)
-  state.placeNext = false
-  state.promptBand = '1'
-  await $.session.start(start)
-  const ui = await $.ui.mount(above)
-  await $.ui.press({ plugin: 'prompt-band', key: 'turn-nav-off' })
-  expect(await ui.find({ type: 'Text', text: 'no line' })).toBeDefined()
-  await $.session.start(start)
-  expect(state.opened).toBe(1)
 })
 
 test('with prompt-band loaded the mod leaves its line to the shared row', { options: { language: 'zh-TW' } }, async ($, on) => {
@@ -321,14 +291,216 @@ test('with prompt-band loaded the mod leaves its line to the shared row', { opti
 })
 
 test('default language renders English prompt label', async ($, on) => {
-  mock.store(on, { mode: 'collapsed' })
-  panes(on)
+  mock.store(on)
+  const state = panes(on)
+  state.placeNext = false
   await $.session.start(start)
   const ui = await $.ui.mount(above)
-  expect((await ui.find({ key: 'nav-open' }))?.text).toMatch(/^🧭 Prompts · 0 +Open ›$/)
+  expect((await ui.find({ key: 'nav-open' }))?.text).toMatch(/^🧭 Prompts · 0 +$/)
 })
+
+// A transcript-file row as Claude Code writes one (only the fields the reader looks at).
+const fileRow = (uuid: string, content: unknown, extra: Record<string, unknown> = {}) =>
+  JSON.stringify({ type: 'user', uuid, isSidechain: false, origin: { kind: 'human' }, message: { role: 'user', content }, ...extra })
+
+test("historyTurns keeps the person's own main-conversation prompts, oldest first", () => {
+  const lines = [
+    '{"type":"user","uuid":"cut-in-half","mess',
+    fileRow('a', 'first'),
+    fileRow('b', '<task-notification>x', { origin: { kind: 'task-notification' } }),
+    fileRow('c', 'a subagent prompt', { isSidechain: true }),
+    fileRow('d', 'meta', { isMeta: true }),
+    fileRow('e', 'another session', { origin: { kind: 'peer' } }),
+    fileRow('f', [{ type: 'text', text: '<system-reminder>r</system-reminder>second' }, { type: 'image' }]),
+    '',
+  ].join('\n')
+  const read = historyTurns(lines)
+  expect(read.turns).toEqual([{ id: 'a', text: 'first' }, { id: 'f', text: 'second' }])
+  expect(read.unreadable).toBe(1)
+  expect(historyTurns(lines, 1).turns).toEqual([{ id: 'f', text: 'second' }])
+})
+
+type Run = { exitCode: number; stdout: string; stderr: string; isStdoutTruncated: boolean; isStderrTruncated: boolean }
+const ran = (stdout: string, extra: Partial<Run> = {}): Run =>
+  ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false, ...extra })
+
+// The read runs after the start event has answered; look again until the pane shows what it settled to.
+async function shown<T>(find: () => Promise<T | undefined>): Promise<T | undefined> {
+  for (let i = 0; i < 200; i++) {
+    const found = await find()
+    if (found) return found
+  }
+  return undefined
+}
+
+test('a session lists the prompts its transcript file already holds, before the new ones', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  mock.session(on)
+  const state = panes(on, () => ran(`${fileRow('old-1', '早先的問題')}\n${fileRow('old-2', '第二個')}\n`))
+  await $.session.start(start)
+  const ui = await $.ui.mount(pane)
+  expect((await shown(() => ui.find({ key: 'turn-1' })))?.text).toMatch(/^2 第二個 +›$/)
+  await $.session.append(prompt('new one'))
+  expect((await ui.find({ key: 'turn-0' }))?.text).toMatch(/^1 早先的問題/)
+  expect((await ui.find({ key: 'turn-2' }))?.text).toMatch(/^3 new one/)
+  for (const text of Object.values(notes)) expect(await ui.find({ type: 'Text', text })).toBeUndefined()
+  expect(state.reads).toHaveLength(1)
+  expect(state.reads[0]?.[0]).toBe('/bin/sh')
+  expect(state.reads[0]?.slice(-2)).toEqual(['id', 'sid-1'])
+})
+
+test('a resume reads the file it names, and so does every reload after it', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  const state = panes(on, () => ran(`${fileRow('p-1', 'by path')}\n`))
+  await $.session.start(start)
+  await $.classic.SessionStart({ source: 'resume', transcript_path: '/t/named.jsonl' })
+  const ui = await $.ui.mount(pane)
+  expect((await shown(() => ui.find({ key: 'turn-0' })))?.text).toMatch(/^1 by path/)
+  await $.session.start(start)
+  for (let i = 0; i < 200 && state.reads.length < 3; i++) await ui.find({ key: 'turn-0' })
+  expect(state.reads.map(argv => argv.slice(-2))).toEqual([['id', 'sid-1'], ['path', '/t/named.jsonl'], ['path', '/t/named.jsonl']])
+  expect(await ui.find({ key: 'turn-1' })).toBeUndefined()
+})
+
+test('a reload reads the file again and lists each prompt once', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  mock.session(on)
+  let file = `${fileRow('a', 'first')}\n${fileRow('b', 'second')}\n`
+  const state = panes(on, () => ran(file))
+  await $.session.start(start)
+  const ui = await $.ui.mount(pane)
+  expect(await shown(() => ui.find({ key: 'turn-1' }))).toBeDefined()
+  await $.session.append(prompt('third'))
+  file += `${fileRow('incoming', 'third')}\n`
+  await $.session.start(start)
+  for (let i = 0; i < 200 && state.reads.length < 2; i++) await ui.find({ key: 'turn-0' })
+  expect(await shown(() => ui.find({ key: 'turn-3' }))).toBeUndefined()
+  expect((await ui.find({ key: 'turn-2' }))?.text).toMatch(/^3 third/)
+  expect(state.reads).toHaveLength(2)
+})
+
+test('a session with no transcript yet, or none of its rows a user\'s, shows nothing and no note', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  let answer = ran('', { exitCode: 3 })
+  const state = panes(on, () => answer)
+  await $.session.start(start)
+  const ui = await $.ui.mount(pane)
+  for (let i = 0; i < 200 && state.reads.length < 1; i++) await ui.find({ key: 'turn-0' })
+  answer = ran('', { exitCode: 4 })
+  await $.session.start(start)
+  expect(await shown(() => ui.find({ key: 'turn-0' }))).toBeUndefined()
+  const zh = STRINGS['zh-TW']
+  const quiet = [...Object.values(notes), zh.history({ kind: 'failed', reason: 'exit 3' }), zh.history({ kind: 'failed', reason: 'exit 4' })]
+  for (const text of quiet) expect(await ui.find({ type: 'Text', text })).toBeUndefined()
+  expect(state.reads).toHaveLength(2)
+})
+
+test('a read that fails, finds no prompt of the person\'s, or was cut says so in the pane', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  let answer = ran('', { exitCode: 2, stderr: 'grep: /t/gone.jsonl: No such file or directory\n' })
+  panes(on, () => answer)
+  await $.session.start(start)
+  const ui = await $.ui.mount(pane)
+  expect(await shown(() => ui.find({ type: 'Text', text: notes.failed }))).toBeDefined()
+
+  answer = ran('', { exitCode: 1 })
+  await $.session.start(start)
+  expect(await shown(() => ui.find({ type: 'Text', text: notes.none }))).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: notes.failed })).toBeUndefined()
+
+  answer = ran(`"uuid":"half-a-row"}\n${fileRow('n', 'newest')}\n`)
+  await $.session.start(start)
+  expect((await shown(() => ui.find({ key: 'turn-0' })))?.text).toMatch(/^1 newest/)
+  expect(await ui.find({ type: 'Text', text: notes.cut })).toBeDefined()
+})
+
+test('a read that took every byte it may is noted as cut, even with no row cut in half', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  const row = fileRow('r', 'x'.repeat(1000))
+  const lines = `${row}\n`.repeat(Math.ceil(4_000_000 / (row.length + 1)))
+  panes(on, () => ran(lines))
+  await $.session.start(start)
+  const ui = await $.ui.mount(pane)
+  expect(await shown(() => ui.find({ type: 'Text', text: notes.cut }))).toBeDefined()
+})
+
+test('when two reads overlap, the later start wins even if its read finishes first', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  let releaseFirst: (run: Run) => void = () => undefined
+  let call = 0
+  panes(on, () => {
+    call += 1
+    if (call === 1) return new Promise<Run>(resolve => { releaseFirst = resolve })
+    return ran(`${fileRow('new-1', 'from the later start')}\n`)
+  })
+  await $.session.start(start)
+  await $.session.start(start)
+  const ui = await $.ui.mount(pane)
+  expect((await shown(() => ui.find({ key: 'turn-0' })))?.text).toMatch(/^1 from the later start/)
+  releaseFirst(ran(`${fileRow('stale-1', 'stale read')}\n`))
+  expect(await shown(() => ui.find({ key: 'turn-1' }))).toBeUndefined()
+  expect((await ui.find({ key: 'turn-0' }))?.text).toMatch(/^1 from the later start/)
+})
+
+const notes = {
+  failed: '先前的對話讀不到：grep: /t/gone.jsonl: No such file or directory',
+  none: 'session 檔裡找不到先前的對話',
+  cut: '先前的對話：session 檔太長，只列出最新的',
+}
 
 test('unknown and missing languages use English strings', () => {
   expect(stringsFor('fr')).toBe(STRINGS.en)
   expect(stringsFor(undefined)).toBe(STRINGS.en)
+})
+
+test('fuzzy search: letters in order with gaps, every word must match', () => {
+  expect(fuzzyScore('ath', 'fix the auth middleware')).toBeGreaterThan(0)
+  expect(fuzzyScore('hta', 'auth')).toBe(-1)
+  expect(fuzzyScore('auth mid', 'fix the auth middleware')).toBeGreaterThan(0)
+  expect(fuzzyScore('auth zzz', 'fix the auth middleware')).toBe(-1)
+  expect(fuzzyScore('退冰', '但整瓶拿出來退冰不會讓整瓶變質嗎')).toBeGreaterThan(0)
+  expect(fuzzyScore('AUTH', 'auth')).toBe(fuzzyScore('auth', 'auth'))
+})
+
+test('search keeps the matching prompts in order with their own numbers', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.session(on)
+  await $.session.append(prompt('fix the auth middleware'))
+  await $.session.append(prompt('render 04 views'))
+  await $.session.append(prompt('auth cookie flags'))
+  const ui = await $.ui.mount(pane)
+  await ui.input({ key: 'search', text: 'auth', kind: 'change' })
+  expect((await ui.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['turn-0', 'turn-2'])
+  expect((await ui.find({ key: 'turn-2' }))?.text).toMatch(/^3 auth cookie flags/)
+  expect(await ui.find({ type: 'Text', text: '2 / 3' })).toBeDefined()
+  await ui.input({ key: 'search', text: 'zzz', kind: 'change' })
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
+  expect(await ui.find({ type: 'Text', text: '沒有符合的' })).toBeDefined()
+})
+
+test('opening the pane takes the keys and starts unfiltered', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.store(on)
+  mock.session(on)
+  const state = panes(on)
+  await $.session.start(start)
+  await $.session.append(prompt('one'))
+  await $.session.append(prompt('two'))
+  const ui = await $.ui.mount(pane)
+  await ui.input({ key: 'search', text: 'one', kind: 'change' })
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
+  await $.command.run(command)
+  expect(state.args).toMatchObject({ focus: true })
+  expect((await ui.findAll({ type: 'Button' })).map(b => b.key)).toEqual(['turn-0', 'turn-1'])
+})
+
+test('a phone has no search field and lists every prompt', { options: { language: 'zh-TW' } }, async ($, on) => {
+  mock.session(on)
+  await $.session.append(prompt('one'))
+  const ui = await $.ui.mount({ ...pane, surface: 'mobile' })
+  expect(await ui.find({ key: 'search' })).toBeUndefined()
+  expect((await ui.find({ key: 'turn-0' }))?.text).toMatch(/^1 one/)
+})
+
+test('no search field before the first prompt', { options: { language: 'zh-TW' } }, async $ => {
+  const ui = await $.ui.mount(pane)
+  expect(await ui.find({ key: 'search' })).toBeUndefined()
 })

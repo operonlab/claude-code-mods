@@ -37,16 +37,12 @@ const TURN_NAV = {
       $.ui.toast('pressed turn-nav')
       return next(e)
     })
-    on('ui.press', { plugin: 'prompt-band', element: 'turn-nav-off' }, async ($, e, next) => {
-      $.ui.toast('pressed turn-nav-off')
-      return next(e)
-    })
   },
 }
 const PLUGINS = { plugins: [HOOK_NOTICES, TURN_NAV] }
 
-const HOOK_CHIP = { label: '🪝 hook 訊息 · 85 則 · 已讀', action: '展開' }
-const NAV_CHIP = { label: '🧭 導覽 · 3 則 · 最新的問題', action: '開啟' }
+const HOOK_CHIP = { label: '🪝 hook 訊息 · 85 則 · 已讀' }
+const NAV_CHIP = { label: '🧭 導覽 · 3 則 · 最新的問題' }
 
 function world(on: On, chips: { hook?: object; nav?: object }) {
   const env: Array<[string, string | undefined]> = []
@@ -64,9 +60,9 @@ async function start($: Engine) {
 }
 
 test('the navigator line takes what it needs, within its floor and half; the hook line the rest', () => {
-  expect(sharedWidths(120, 22)).toEqual([120 - 7 - MIN_SHARED, MIN_SHARED])
-  expect(sharedWidths(120, 40)).toEqual([120 - 7 - 40, 40])
-  expect(sharedWidths(120, 90)).toEqual([57, 56])
+  expect(sharedWidths(120, 22)).toEqual([MIN_SHARED, 120 - 7 - MIN_SHARED])
+  expect(sharedWidths(120, 40)).toEqual([40, 120 - 7 - 40])
+  expect(sharedWidths(120, 90)).toEqual([56, 57])
   expect(sharedWidths(2 * MIN_SHARED + 7, 10)).toEqual([MIN_SHARED, MIN_SHARED])
   expect(sharedWidths(2 * MIN_SHARED + 6, 10)).toBeUndefined()
 })
@@ -77,19 +73,20 @@ test('session start tells the two mods to leave their lines to this row', PLUGIN
   expect(env).toEqual([['PROMPT_BAND', '1']])
 })
 
-test('both lines on one row, ending where the navigator line ends on its own', PLUGINS, async ($, on) => {
+test('both lines on one row with the navigator first, ending at bodyColumns minus four', PLUGINS, async ($, on) => {
   world(on, { hook: HOOK_CHIP, nav: NAV_CHIP })
   await start($)
   const ui = await $.ui.mount(above(120))
   const hook = (await ui.find({ key: 'hook-notices' }))?.text ?? ''
   const nav = (await ui.find({ key: 'turn-nav' }))?.text ?? ''
-  expect(hook).toMatch(/^🪝 hook 訊息 · 85 則 · 已讀 +展開 ›$/)
-  expect(nav).toMatch(/^🧭 導覽 · 3 則 · 最新的問題 +開啟 ›$/)
+  expect(hook).toMatch(/^🪝 hook 訊息 · 85 則 · 已讀 +$/)
+  expect(nav).toMatch(/^🧭 導覽 · 3 則 · 最新的問題 +$/)
   // Uncut: the navigator line gets what its text needs, the hook line the rest.
-  expect(cellWidth(nav)).toBe(cellWidth(NAV_CHIP.label) + 1 + cellWidth(' 開啟 ›'))
-  // The hook line, ` │ `, the navigator line, ` ✕`.
-  expect(cellWidth(hook) + 3 + cellWidth(nav) + 2).toBe(120 - 2)
-  expect((await ui.find({ key: 'turn-nav-off' }))?.text).toBe('✕')
+  expect(cellWidth(nav)).toBe(cellWidth(NAV_CHIP.label) + 1)
+  // The navigator line, ` │ `, and the hook line end at bodyColumns - 4.
+  expect(cellWidth(nav) + 3 + cellWidth(hook)).toBe(120 - 4)
+  expect((await ui.findAll({ type: 'Button' })).map(button => button.key)).toEqual(['turn-nav', 'hook-notices'])
+  expect(await ui.find({ key: 'turn-nav-off' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'engine band' })).toBeDefined()
 })
 
@@ -99,15 +96,15 @@ test('too narrow to share, each line keeps a row of its own as wide as the band 
   const ui = await $.ui.mount(above(50))
   expect(cellWidth((await ui.find({ key: 'hook-notices' }))?.text ?? '')).toBe(50 - 4)
   expect(cellWidth((await ui.find({ key: 'turn-nav' }))?.text ?? '')).toBe(50 - 4)
-  expect((await ui.find({ key: 'turn-nav-off' }))?.text).toBe('✕')
+  expect((await ui.findAll({ type: 'Button' })).map(button => button.key)).toEqual(['turn-nav', 'hook-notices'])
+  expect(await ui.find({ key: 'turn-nav-off' })).toBeUndefined()
 })
 
-test('a very narrow band still fits the navigator row with its ✕', PLUGINS, async ($, on) => {
+test('a very narrow band still fits the navigator row', PLUGINS, async ($, on) => {
   world(on, { hook: HOOK_CHIP, nav: NAV_CHIP })
   await start($)
   const ui = await $.ui.mount(above(24))
-  // The navigator line, a gap, ✕.
-  expect(cellWidth((await ui.find({ key: 'turn-nav' }))?.text ?? '') + 2).toBeLessThanOrEqual(24)
+  expect(cellWidth((await ui.find({ key: 'turn-nav' }))?.text ?? '')).toBeLessThanOrEqual(24)
 })
 
 test('one line alone takes the whole row', PLUGINS, async ($, on) => {
@@ -132,6 +129,5 @@ test('each press reaches the mod whose line it is', PLUGINS, async ($, on) => {
   const ui = await $.ui.mount(above(120))
   await ui.press({ key: 'hook-notices' })
   await ui.press({ key: 'turn-nav' })
-  await ui.press({ key: 'turn-nav-off' })
-  expect(toasts).toEqual(['pressed hook-notices', 'pressed turn-nav', 'pressed turn-nav-off'])
+  expect(toasts).toEqual(['pressed hook-notices', 'pressed turn-nav'])
 })

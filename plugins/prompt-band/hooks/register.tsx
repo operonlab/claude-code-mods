@@ -27,32 +27,28 @@ export const register: Register = on => {
     const { Box, Button, Text } = $.ui.resolve(e)
     const below = await next(e)
     // No hotkeys: a plain Button draws one as `h: ` ahead of the label.
-    const hookLine = (width: number) => hook && <Button key="hook-notices" plain dimColor label={fitRow(hook.label, hook.action, width)} onPress={answeredByOwner} />
-    const navLine = (width: number) => nav && <Button key="turn-nav" plain dimColor label={fitRow(nav.label, nav.action, width)} onPress={answeredByOwner} />
-    const off = <Button key="turn-nav-off" plain dimColor label="✕" onPress={answeredByOwner} />
-    // The navigator line's text, one space, its ` action ›`: what it needs uncut.
-    const shared = hook && nav ? sharedWidths(e.props.bodyColumns, cellWidth(nav.label) + 1 + cellWidth(` ${nav.action} ›`)) : undefined
+    const hookLine = (width: number) => hook && <Button key="hook-notices" plain dimColor label={fitRow(hook.label, width)} onPress={answeredByOwner} />
+    const navLine = (width: number) => nav && <Button key="turn-nav" plain dimColor label={fitRow(nav.label, width)} onPress={answeredByOwner} />
+    const shared = hook && nav ? sharedWidths(e.props.bodyColumns, cellWidth(nav.label) + 1) : undefined
 
     if (shared) {
       return (
         <Box flexDirection="column">
           <Box flexDirection="row">
-            {hookLine(shared[0])}
+            {navLine(shared[0])}
             <Text dimColor> │ </Text>
-            {navLine(shared[1])}
-            <Text> </Text>
-            {off}
+            {hookLine(shared[1])}
           </Box>
           {below}
         </Box>
       )
     }
-    // A row each, as the two mods draw them on their own: the › of both lines lines up.
+    // A row each, as the two mods draw them on their own.
     const width = Math.max(12, e.props.bodyColumns - 4)
     return (
       <Box flexDirection="column">
+        {navLine(width)}
         {hookLine(width)}
-        {nav && <Box flexDirection="row" columnGap={1}>{navLine(width)}{off}</Box>}
         {below}
       </Box>
     )

@@ -1,0 +1,9 @@
+{
+  "name": "link-nav",
+  "version": "0.1.2",
+  "description": "Lists the files sent as cards and the links in replies this session, with fuzzy search; open one or jump to where it was sent.",
+  "author": { "name": "Jones Hong" },
+  "license": "MIT",
+  "userConfig": { "language": { "title": "Language", "description": "Labels in English or Traditional Chinese", "type": "string", "options": ["en", "zh-TW"], "default": "en" } },
+  "types": "./types/index.d.ts"
+}
