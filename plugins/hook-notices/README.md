@@ -5,7 +5,7 @@ after an edit — normally print as rows in the transcript, between the work you
 are reading. hook-notices folds them into one line above the prompt:
 
 ```
-🪝 Hook messages · 3 · ⚠ 1 · deploy check failed                    Open ›
+🪝 Hook messages · 3 · ⚠ 1 · deploy check failed
 ```
 
 The count is what you have not read yet, `⚠` counts alerts among them, and the

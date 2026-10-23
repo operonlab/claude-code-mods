@@ -19,8 +19,8 @@
     },
     {
       "name": "turn-nav",
-      "description": "Lists your prompts in a pane and jumps the transcript to a selected prompt.",
-      "version": "0.1.0",
+      "description": "Lists your prompts in a pane, with fuzzy search, and jumps the transcript to a selected prompt.",
+      "version": "0.5.1",
       "author": {
         "name": "Jones Hong"
       },
@@ -29,7 +29,7 @@
     {
       "name": "hook-notices",
       "description": "Fold this session's hook messages into one line above the prompt; open them in a scrollable pane.",
-      "version": "0.1.0",
+      "version": "0.3.1",
       "author": {
         "name": "Jones Hong"
       },
@@ -38,11 +38,20 @@
     {
       "name": "prompt-band",
       "description": "Draw hook-notices' and turn-nav's lines above the prompt as one row.",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "author": {
         "name": "Jones Hong"
       },
       "source": "./plugins/prompt-band"
+    },
+    {
+      "name": "link-nav",
+      "description": "Lists the files sent as cards and the links in replies this session, with fuzzy search; open one or jump to where it was sent.",
+      "version": "0.1.2",
+      "author": {
+        "name": "Jones Hong"
+      },
+      "source": "./plugins/link-nav"
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "hook-notices",
-  "version": "0.1.0",
+  "version": "0.3.1",
   "description": "Fold this session's hook messages into one line above the prompt; open them in a scrollable pane.",
   "author": {
     "name": "Jones Hong"

@@ -10,6 +10,35 @@ export function promptText(content: unknown): string {
   }
 }
 
+// How a transcript file marks a row the person sent: `human` as the file writes it today; the live
+// event's own kinds too, in case the file follows them. `peer` (another session) and notices are not.
+const PERSON = new Set(['human', 'composer', 'bridge'])
+
+/**
+ * The person's prompts in transcript-file lines (JSONL), oldest first, the newest `max` kept: rows of
+ * the main conversation (no subagent's, no meta row) whose origin is the person. A line that does not
+ * parse (the last one when the read was cut) is counted in `unreadable`.
+ */
+export function historyTurns(lines: string, max = 200): { turns: { id: string; text: string }[]; unreadable: number } {
+  const turns: { id: string; text: string }[] = []
+  let unreadable = 0
+  for (const line of lines.split('\n')) {
+    if (!line.trim()) continue
+    let row: any
+    try {
+      row = JSON.parse(line)
+    } catch {
+      unreadable += 1
+      continue
+    }
+    if (row?.type !== 'user' || row.isSidechain || row.isMeta || typeof row.uuid !== 'string') continue
+    if (!PERSON.has(row.origin?.kind)) continue
+    const text = promptText(row.message?.content)
+    if (text) turns.push({ id: row.uuid, text })
+  }
+  return { turns: turns.slice(-max), unreadable }
+}
+
 // East Asian wide and fullwidth ranges plus emoji: a terminal cell pair each.
 const WIDE = /[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA000-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u{1F300}-\u{1FAFF}\u{20000}-\u{3FFFD}]/u
 
@@ -45,20 +74,18 @@ export function navLabel(list: { text: string }[], s: import('./strings').String
   return s.navLabel(list.length, newest)
 }
 
-/** `text`, padding, then ` action ›`: exactly `width` cells, text cut with … when it must be. */
-export function fitLine(text: string, action: string, width: number): string {
-  const tail = ` ${action} ›`
-  const room = width - cellWidth(tail) - 1
+/** Cut with … when needed, then pad the whole tap target to `width` cells. */
+export function fitLine(text: string, width: number): string {
   let body = text
-  if (cellWidth(body) > room) {
+  if (cellWidth(body) > width) {
     let out = ''
     for (const char of body) {
-      if (cellWidth(out + char) > room - 1) break
+      if (cellWidth(out + char) > width - 1) break
       out += char
     }
     body = `${out}…`
   }
-  return body + ' '.repeat(Math.max(1, width - cellWidth(body) - cellWidth(tail))) + tail
+  return body + ' '.repeat(Math.max(0, width - cellWidth(body)))
 }
 
 export function rowLabel(n: number, text: string, width: number): string {
