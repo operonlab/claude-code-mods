@@ -66,7 +66,10 @@ for m in $MODS; do
 done
 "$ROOT/scripts/check-notify-example.sh" "$STAGE/plugins/hook-notices" || fail "hook-notices example check failed"
 
-rsync -a --delete "$STAGE/plugins/" "$ROOT/plugins/"
-rsync -a "$STAGE/.claude-plugin/" "$ROOT/.claude-plugin/"
+# --checksum: the generated marketplace.json can have the same size and the same
+# second as the checked-out one (a version bump 0.5.1 -> 0.6.0), and rsync's
+# size-and-time check would then keep the old file.
+rsync -a --checksum --delete "$STAGE/plugins/" "$ROOT/plugins/"
+rsync -a --checksum "$STAGE/.claude-plugin/" "$ROOT/.claude-plugin/"
 print "synced ${#MODS} mods from $SRC"
 git -C "$ROOT" status --short
